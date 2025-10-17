@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 
 export async function POST(request) {
   try {
+    console.log("Generate API route called");
+
     // Parse request body
     const {
       topics = ["javascript", "html"],
@@ -22,6 +24,7 @@ export async function POST(request) {
 
     // Get agent coordinator and generate specialized web development test
     const coordinator = getAgentCoordinator();
+    console.log("Agent coordinator obtained");
 
     const response = await coordinator.generateWebDevTest({
       topics,
@@ -30,6 +33,8 @@ export async function POST(request) {
       focusTopics,
       framework,
     });
+
+    console.log("Generate response received:", response);
 
     if (response.ok) {
       console.log(
@@ -45,6 +50,7 @@ export async function POST(request) {
     }
   } catch (error) {
     console.error("Generate API error:", error);
+    console.error("Error stack:", error.stack);
     return NextResponse.json(
       {
         ok: false,

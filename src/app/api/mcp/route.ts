@@ -57,8 +57,13 @@ interface ProgressParams {
 
 // Initialize OpenAI client
 function getOpenAI() {
+  const apiKey = process.env.OPENAI_API_KEY;
+  console.log("OpenAI API Key present:", !!apiKey);
+  if (!apiKey) {
+    throw new Error("OPENAI_API_KEY environment variable is not set");
+  }
   return new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
+    apiKey,
   });
 }
 
@@ -388,7 +393,11 @@ const agents = {
 
 export async function POST(request: NextRequest) {
   try {
-    const { method, params, id } = await request.json();
+    console.log("MCP API endpoint hit");
+    const body = await request.json();
+    console.log("MCP request body:", JSON.stringify(body, null, 2));
+
+    const { method, params, id } = body;
 
     // Handle MCP initialization
     if (method === "initialize") {
