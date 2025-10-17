@@ -41,9 +41,10 @@ interface GradeResponse {
   ok: boolean;
   result: {
     results: GradeResult[];
-    totalScorePercent: number;
+    totalScorePercent?: number;
+    overallScore?: number;
     totalPoints: number;
-    earnedPoints: number;
+    earnedPoints?: number;
   };
   error?: string;
   raw?: string;
@@ -183,10 +184,10 @@ export default function TestTrainer() {
   // Load progress statistics
   const loadProgressStats = async () => {
     try {
-      const response = await fetch('/api/stats');
+      const response = await fetch('/api/progress?userId=default&timeframe=week');
       const result = await response.json();
-      if (result.ok) {
-        setProgressStats(result.stats);
+      if (result.ok && result.result) {
+        setProgressStats(result.result);
       }
     } catch (error) {
       console.error('Failed to load progress stats:', error);
@@ -284,7 +285,8 @@ export default function TestTrainer() {
         await trackProgressData(result.result.results);
         
         // Check if we achieved target score
-        if (result.result.totalScorePercent >= TARGET_PERCENT) {
+        const scorePercent = result.result.totalScorePercent ?? result.result.overallScore ?? 0;
+        if (scorePercent >= TARGET_PERCENT) {
           setSessionComplete(true);
           return;
         }
@@ -324,37 +326,28 @@ export default function TestTrainer() {
     const timeSpent = Date.now() - questionStartTime;
     
     try {
-      const progressDataArray: ProgressData[] = results.map(result => {
-        const question = currentTest?.result.questions.find(q => q.id === result.id);
-        return {
-          questionId: result.id,
-          category: deriveCategory(question?.prompt || ''),
-          difficulty: currentDifficulty,
-          isCorrect: result.correct,
-          score: result.score,
-          maxScore: result.max,
-          timeSpent: timeSpent / results.length // Average time per question
-        };
-      });
+      const testResults = results.map(result => ({
+        correct: result.correct,
+        category: deriveCategory(currentTest?.result.questions.find(q => q.id === result.id)?.prompt || ''),
+        score: result.score ?? 0
+      }));
 
       const response = await fetch('/api/progress', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          progressData: progressDataArray,
-          sessionMetadata: {
-            topics: selectedTopics,
-            framework: selectedFramework,
-            difficulty: currentDifficulty
-          }
+          testResults,
+          currentDifficulty,
+          subject: 'web-development',
+          userId: 'default'
         })
       });
 
       const result = await response.json();
-      if (result.ok && result.recommendations) {
+      if (result.ok && result.result?.recommendations) {
         // Update difficulty based on recommendations
-        if (result.recommendations.adjustDifficulty) {
-          setCurrentDifficulty(result.recommendations.adjustDifficulty);
+        if (result.result.recommendations.adjustDifficulty) {
+          setCurrentDifficulty(result.result.recommendations.adjustDifficulty);
         }
         
         // Refresh progress stats
@@ -472,7 +465,7 @@ export default function TestTrainer() {
               Attempt {currentAttempt} of {maxAttempts}
               {gradeResult && (
                 <span className="ml-2 font-semibold">
-                  Last Score: {gradeResult.totalScorePercent.toFixed(1)}%
+                  Last Score: {(gradeResult.totalScorePercent ?? gradeResult.overallScore ?? 0).toFixed(1)}%
                 </span>
               )}
             </p>
@@ -497,19 +490,19 @@ export default function TestTrainer() {
                   <div className="flex justify-between">
                     <span className="text-blue-700">Accuracy:</span>
                     <span className="font-bold text-blue-900">
-                      {progressStats.overallAccuracy.toFixed(1)}%
+                      {(progressStats.overallAccuracy ?? 0).toFixed(1)}%
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-blue-700">Questions:</span>
                     <span className="font-bold text-blue-900">
-                      {progressStats.totalCorrect}/{progressStats.totalQuestions}
+                      {progressStats.totalCorrect ?? 0}/{progressStats.totalQuestions ?? 0}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-blue-700">Streak:</span>
                     <span className="font-bold text-blue-900">
-                      {progressStats.streak} correct
+                      {progressStats.streak ?? 0} correct
                     </span>
                   </div>
                 </div>
@@ -522,19 +515,19 @@ export default function TestTrainer() {
                   <div className="flex justify-between">
                     <span className="text-green-700">Current:</span>
                     <span className="font-bold text-green-900 capitalize">
-                      {progressStats.currentDifficulty}
+                      {progressStats.currentDifficulty ?? 'junior'}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-green-700">Recommended:</span>
                     <span className="font-bold text-green-900 capitalize">
-                      {progressStats.recommendedDifficulty}
+                      {progressStats.recommendedDifficulty ?? 'junior'}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-green-700">Trend:</span>
                     <span className="font-bold text-green-900">
-                      {progressStats.improvementTrend}
+                      {progressStats.improvementTrend ?? 'stable'}
                     </span>
                   </div>
                 </div>
@@ -547,7 +540,7 @@ export default function TestTrainer() {
                   <div className="flex justify-between">
                     <span className="text-purple-700">Speed:</span>
                     <span className="font-bold text-purple-900">
-                      {progressStats.learningVelocity.toFixed(1)}x
+                      {(progressStats.learningVelocity ?? 1.0).toFixed(1)}x
                     </span>
                   </div>
                   <div className="text-xs text-purple-700 mt-2">
@@ -566,19 +559,19 @@ export default function TestTrainer() {
             <div className="mb-6">
               <h3 className="font-semibold mb-3">📈 Performance by Category</h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                {Object.entries(progressStats.categoryStats).map(([category, stats]) => (
+                {Object.entries(progressStats.categoryStats ?? {}).map(([category, stats]) => (
                   <div key={category} className="bg-gray-50 p-3 rounded-lg">
                     <div className="text-sm font-medium text-gray-700">{category}</div>
                     <div className="text-lg font-bold">
                       <span className={
-                        stats.accuracy >= 80 ? 'text-green-600' :
-                        stats.accuracy >= 60 ? 'text-yellow-600' : 'text-red-600'
+                        (stats.accuracy ?? 0) >= 80 ? 'text-green-600' :
+                        (stats.accuracy ?? 0) >= 60 ? 'text-yellow-600' : 'text-red-600'
                       }>
-                        {stats.accuracy.toFixed(0)}%
+                        {(stats.accuracy ?? 0).toFixed(0)}%
                       </span>
                     </div>
                     <div className="text-xs text-gray-500">
-                      {stats.correct}/{stats.total} correct
+                      {stats.correct ?? 0}/{stats.total ?? 0} correct
                     </div>
                   </div>
                 ))}
@@ -769,9 +762,9 @@ export default function TestTrainer() {
           <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-6 rounded-lg mb-6">
             <h2 className="text-xl font-bold mb-2">🎉 Congratulations!</h2>
             <p className="mb-2">
-              You achieved {gradeResult.totalScorePercent.toFixed(1)}% in {currentAttempt} attempts!
+              You achieved {(gradeResult.totalScorePercent ?? gradeResult.overallScore ?? 0).toFixed(1)}% in {currentAttempt} attempts!
             </p>
-            <p className="mb-3">Earned {gradeResult.earnedPoints} out of {gradeResult.totalPoints} points.</p>
+            <p className="mb-3">Earned {gradeResult.earnedPoints ?? 0} out of {gradeResult.totalPoints ?? 100} points.</p>
             
             {progressStats && (
               <div className="bg-green-50 border border-green-200 rounded p-3 mt-3">

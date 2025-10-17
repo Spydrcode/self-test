@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test API</title>
+</head>
+<body>
+    <h1>Testing API</h1>
+    <button onclick="testAPI()">Test Generate API</button>
+    <div id="result"></div>
+
+    <script>
+        async function testAPI() {
+            try {
+                const response = await fetch('/api/generate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        topics: ['javascript'],
+                        numQuestions: 3
+                    })
+                });
+                
+                const result = await response.json();
+                document.getElementById('result').innerHTML = '<pre>' + JSON.stringify(result, null, 2) + '</pre>';
+            } catch (error) {
+                document.getElementById('result').innerHTML = '<p>Error: ' + error.message + '</p>';
+            }
+        }
+    </script>
+</body>
+</html>

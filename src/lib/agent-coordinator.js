@@ -47,7 +47,7 @@ export class AgentCoordinator {
 
         // In server-side context, use direct function call
         if (typeof window === "undefined") {
-          const { handleMcpRequest } = await import("../app/api/mcp/route.ts");
+          const { handleMcpRequest } = await import("./mcp-handler");
           const requestBody = {
             jsonrpc: "2.0",
             method: "initialize",
@@ -244,7 +244,7 @@ export class AgentCoordinator {
     if (this.useHttpApi) {
       // In server-side context, use direct function call to avoid URL issues
       if (typeof window === "undefined") {
-        const { handleMcpRequest } = await import("../app/api/mcp/route.ts");
+        const { handleMcpRequest } = await import("./mcp-handler");
         const requestBody = {
           jsonrpc: "2.0",
           method: "tools/call",
@@ -343,7 +343,8 @@ export class AgentCoordinator {
         framework: options.framework || "vanilla",
       });
 
-      return this.parseToolResponse(result);
+      const parsedResult = this.parseToolResponse(result);
+      return { ok: true, result: parsedResult };
     } catch (error) {
       throw new Error(`Test generation failed: ${error.message}`);
     }
@@ -357,7 +358,8 @@ export class AgentCoordinator {
         strictness: options.strictness || "standard",
       });
 
-      return this.parseToolResponse(result);
+      const parsedResult = this.parseToolResponse(result);
+      return { ok: true, result: parsedResult };
     } catch (error) {
       throw new Error(`Test grading failed: ${error.message}`);
     }
@@ -377,7 +379,8 @@ export class AgentCoordinator {
         context,
       });
 
-      return this.parseToolResponse(result);
+      const parsedResult = this.parseToolResponse(result);
+      return { ok: true, result: parsedResult };
     } catch (error) {
       throw new Error(`Concept explanation failed: ${error.message}`);
     }
@@ -399,7 +402,8 @@ export class AgentCoordinator {
         context: options.context || {},
       });
 
-      return this.parseToolResponse(result);
+      const parsedResult = this.parseToolResponse(result);
+      return { ok: true, result: parsedResult };
     } catch (error) {
       throw new Error(`Wrong answer explanation failed: ${error.message}`);
     }
