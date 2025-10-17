@@ -12,6 +12,18 @@ export class AgentCoordinator {
     this.requestId = 0;
   }
 
+  // Helper function to get the correct MCP API URL
+  getMcpApiUrl() {
+    // In server-side context (API routes), use localhost
+    if (typeof window === "undefined") {
+      return process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL}/api/mcp`
+        : "http://localhost:3000/api/mcp";
+    }
+    // In browser context, use relative URL
+    return "/api/mcp";
+  }
+
   async initialize() {
     if (this.isConnected) {
       return true;
@@ -23,8 +35,37 @@ export class AgentCoordinator {
       // In Vercel, use HTTP API instead of child process
       if (process.env.VERCEL || process.env.VERCEL_ENV) {
         this.useHttpApi = true;
-        // Test connection to our MCP API endpoint
-        const response = await fetch("/api/mcp", {
+
+        // In server-side context, use direct function call
+        if (typeof window === "undefined") {
+          const { handleMcpRequest } = await import("../app/api/mcp/route.ts");
+          const requestBody = {
+            jsonrpc: "2.0",
+            method: "initialize",
+            params: {
+              protocolVersion: "2024-11-05",
+              capabilities: {},
+              clientInfo: { name: "GPT Test Trainer", version: "1.0.0" },
+            },
+            id: 1,
+          };
+
+          const result = await handleMcpRequest(requestBody);
+          if (result.result) {
+            this.isConnected = true;
+            console.log("🔗 MCP direct connection successful");
+            console.log("✅ MCP Agent system connected successfully");
+            console.log(
+              "🎯 All 5 AI agents ready: Test Generator, Checker, Explainer, Utility, Adaptive Learning"
+            );
+            return true;
+          } else {
+            throw new Error("Failed to initialize MCP via direct call");
+          }
+        }
+
+        // In browser context, test connection to our MCP API endpoint
+        const response = await fetch(this.getMcpApiUrl(), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -192,7 +233,28 @@ export class AgentCoordinator {
 
     // Use HTTP API in Vercel environment
     if (this.useHttpApi) {
-      const response = await fetch("/api/mcp", {
+      // In server-side context, use direct function call to avoid URL issues
+      if (typeof window === "undefined") {
+        const { handleMcpRequest } = await import("../app/api/mcp/route.ts");
+        const requestBody = {
+          jsonrpc: "2.0",
+          method: "tools/call",
+          params: {
+            name: toolName,
+            arguments: arguments_,
+          },
+          id: ++this.requestId,
+        };
+
+        const result = await handleMcpRequest(requestBody);
+        if (result.error) {
+          throw new Error(result.error.message || "MCP tool call failed");
+        }
+        return result.result;
+      }
+
+      // In browser context, use fetch
+      const response = await fetch(this.getMcpApiUrl(), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

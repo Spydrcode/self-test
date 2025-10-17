@@ -391,13 +391,127 @@ const agents = {
   "adaptive-learning": new AdaptiveLearningAgent(),
 };
 
+// Direct MCP handler for internal use (avoids HTTP requests)
+export async function handleMcpRequest(requestBody: any) {
+  try {
+    const { method, params, id } = requestBody;
+
+    // Handle MCP initialization
+    if (method === "initialize") {
+      return {
+        jsonrpc: "2.0",
+        id,
+        result: {
+          protocolVersion: "2024-11-05",
+          capabilities: {
+            tools: {},
+          },
+          serverInfo: {
+            name: "GPT Test Trainer MCP Server",
+            version: "1.0.0",
+          },
+        },
+      };
+    }
+
+    // Handle tool calls
+    if (method === "tools/call") {
+      const { name: toolName, arguments: toolArgs } = params;
+
+      let agent:
+        | TestGeneratorAgent
+        | TestCheckerAgent
+        | AnswerExplanationAgent
+        | AdaptiveLearningAgent;
+
+      if (toolName === "generate_jr_web_test") {
+        agent = agents["test-generator"];
+      } else if (toolName === "grade_web_test") {
+        agent = agents["test-checker"];
+      } else if (toolName === "explain_wrong_answer") {
+        agent = agents["answer-explanation"];
+      } else if (toolName === "explain_web_concept") {
+        agent = agents["answer-explanation"];
+      } else if (toolName === "track_learning_progress") {
+        agent = agents["adaptive-learning"];
+      } else if (toolName === "get_progress_stats") {
+        agent = agents["adaptive-learning"];
+      } else {
+        throw new Error(`Unknown tool: ${toolName}`);
+      }
+
+      // Execute the tool
+      let result;
+      switch (toolName) {
+        case "generate_jr_web_test":
+          result = await (agent as TestGeneratorAgent).generateJrWebTest(
+            toolArgs as TestParams
+          );
+          break;
+        case "grade_web_test":
+          result = await (agent as TestCheckerAgent).gradeWebDevTest(
+            toolArgs as GradeParams
+          );
+          break;
+        case "explain_wrong_answer":
+          result = await (agent as AnswerExplanationAgent).explainWrongAnswer(
+            toolArgs as ExplainParams
+          );
+          break;
+        case "explain_web_concept":
+          result = await (agent as AnswerExplanationAgent).explainWebConcept(
+            toolArgs as ConceptParams
+          );
+          break;
+        case "track_learning_progress":
+          result = await (agent as AdaptiveLearningAgent).trackLearningProgress(
+            toolArgs as ProgressParams
+          );
+          break;
+        case "get_progress_stats":
+          result = await (agent as AdaptiveLearningAgent).getProgressStats();
+          break;
+        default:
+          throw new Error(`Unknown tool: ${toolName}`);
+      }
+
+      return {
+        jsonrpc: "2.0",
+        id,
+        result: {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result),
+            },
+          ],
+        },
+      };
+    }
+
+    throw new Error(`Unknown method: ${method}`);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Internal server error";
+    return {
+      jsonrpc: "2.0",
+      id: null,
+      error: {
+        code: -32000,
+        message: errorMessage,
+      },
+    };
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     console.log("MCP API endpoint hit");
     const body = await request.json();
     console.log("MCP request body:", JSON.stringify(body, null, 2));
 
-    const { method, params, id } = body;
+    const result = await handleMcpRequest(body);
+    return NextResponse.json(result);
 
     // Handle MCP initialization
     if (method === "initialize") {
