@@ -23,12 +23,34 @@ class MCPServerManager {
 
     const serverScript = path.join(__dirname, "mcp-server", "index.js");
 
+    // Load environment variables from .env.local
+    const envPath = path.join(__dirname, ".env.local");
+    let additionalEnv = {};
+
+    try {
+      const fs = await import("fs");
+      if (fs.existsSync(envPath)) {
+        const envContent = fs.readFileSync(envPath, "utf8");
+        envContent.split("\n").forEach((line) => {
+          const trimmed = line.trim();
+          if (trimmed && !trimmed.startsWith("#") && trimmed.includes("=")) {
+            const [key, ...valueParts] = trimmed.split("=");
+            additionalEnv[key.trim()] = valueParts.join("=").trim();
+          }
+        });
+        console.log("✅ Loaded environment variables from .env.local");
+      }
+    } catch (error) {
+      console.log("⚠️  Could not load .env.local:", error.message);
+    }
+
     try {
       this.serverProcess = spawn("node", [serverScript], {
         stdio: "inherit",
         env: {
           ...process.env,
-          NODE_ENV: "production",
+          ...additionalEnv,
+          NODE_ENV: "development", // Changed from production
         },
       });
 

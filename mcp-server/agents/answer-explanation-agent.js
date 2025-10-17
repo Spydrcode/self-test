@@ -5,9 +5,17 @@
 
 import OpenAI from "openai";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+let openai = null;
+
+// Lazy-load OpenAI client
+function getOpenAI() {
+  if (!openai) {
+    openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+  }
+  return openai;
+}
 
 export class AnswerExplanationAgent {
   constructor() {
@@ -165,7 +173,7 @@ export class AnswerExplanationAgent {
     );
 
     try {
-      const response = await openai.chat.completions.create({
+      const response = await getOpenAI().chat.completions.create({
         model: "gpt-4",
         messages: [
           { role: "system", content: systemPrompt },

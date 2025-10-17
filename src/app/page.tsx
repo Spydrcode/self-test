@@ -108,6 +108,35 @@ interface ExplanationResponse {
   raw?: string;
 }
 
+// Adaptive Learning interfaces
+interface ProgressStats {
+  totalQuestions: number;
+  totalCorrect: number;
+  overallAccuracy: number;
+  categoryStats: Record<string, {
+    correct: number;
+    total: number;
+    accuracy: number;
+  }>;
+  weakAreas: string[];
+  strongAreas: string[];
+  currentDifficulty: string;
+  recommendedDifficulty: string;
+  streak: number;
+  improvementTrend: string;
+  learningVelocity: number;
+}
+
+interface ProgressData {
+  questionId: number;
+  category: string;
+  difficulty: string;
+  isCorrect: boolean;
+  score: number;
+  maxScore: number;
+  timeSpent: number;
+}
+
 export default function TestTrainer() {
   // State management
   const [currentTest, setCurrentTest] = useState<TestResponse | null>(null);
@@ -119,7 +148,14 @@ export default function TestTrainer() {
   const [maxAttempts, setMaxAttempts] = useState(MAX_ATTEMPTS);
   const [currentAttempt, setCurrentAttempt] = useState(0);
   const [sessionComplete, setSessionComplete] = useState(false);
-  const [lastResponse, setLastResponse] = useState<any>(null);
+  const [lastResponse, setLastResponse] = useState<TestResponse | GradeResponse | ExplanationResponse | null>(null);
+  
+  // Adaptive Learning state
+  const [progressStats, setProgressStats] = useState<ProgressStats | null>(null);
+  const [currentDifficulty, setCurrentDifficulty] = useState('junior');
+  const [selectedTopics, setSelectedTopics] = useState<string[]>(['HTML', 'CSS', 'JavaScript']);
+  const [selectedFramework, setSelectedFramework] = useState('vanilla');
+  const [questionStartTime, setQuestionStartTime] = useState<number>(Date.now());
 
   // Load session from localStorage on mount
   useEffect(() => {
@@ -132,15 +168,46 @@ export default function TestTrainer() {
         setCurrentAttempt(data.currentAttempt || 0);
         setAutoRegenerate(data.autoRegenerate ?? true);
         setMaxAttempts(data.maxAttempts || MAX_ATTEMPTS);
+        setCurrentDifficulty(data.currentDifficulty || 'junior');
+        setSelectedTopics(data.selectedTopics || ['HTML', 'CSS', 'JavaScript']);
+        setSelectedFramework(data.selectedFramework || 'vanilla');
       } catch (e) {
         console.error('Failed to load session:', e);
       }
     }
+    
+    // Load progress stats
+    loadProgressStats();
   }, []);
 
+  // Load progress statistics
+  const loadProgressStats = async () => {
+    try {
+      const response = await fetch('/api/stats');
+      const result = await response.json();
+      if (result.ok) {
+        setProgressStats(result.stats);
+      }
+    } catch (error) {
+      console.error('Failed to load progress stats:', error);
+    }
+  };
+
   // Save session to localStorage
-  const saveSession = (data: any) => {
-    localStorage.setItem('testTrainerSession', JSON.stringify(data));
+  const saveSession = (data: { 
+    currentTest?: TestResponse; 
+    answers: Record<number, string>; 
+    currentAttempt: number;
+    autoRegenerate: boolean;
+    maxAttempts: number;
+  }) => {
+    const sessionData = {
+      ...data,
+      currentDifficulty,
+      selectedTopics,
+      selectedFramework
+    };
+    localStorage.setItem('testTrainerSession', JSON.stringify(sessionData));
   };
 
   // Generate new test
@@ -149,15 +216,17 @@ export default function TestTrainer() {
     setGradeResult(null);
     setExplanations({});
     setAnswers({});
+    setQuestionStartTime(Date.now());
     
     try {
       const response = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          topics: ['interview preparation', 'general knowledge'],
+          topics: focusTopics.length > 0 ? focusTopics : selectedTopics,
           numQuestions: 5,
-          difficulty: 'medium',
+          difficulty: currentDifficulty,
+          framework: selectedFramework,
           focusTopics
         })
       });
@@ -211,6 +280,9 @@ export default function TestTrainer() {
       if (result.ok) {
         setGradeResult(result.result);
         
+        // Track progress for adaptive learning
+        await trackProgressData(result.result.results);
+        
         // Check if we achieved target score
         if (result.result.totalScorePercent >= TARGET_PERCENT) {
           setSessionComplete(true);
@@ -245,6 +317,64 @@ export default function TestTrainer() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Track progress data for adaptive learning
+  const trackProgressData = async (results: GradeResult[]) => {
+    const timeSpent = Date.now() - questionStartTime;
+    
+    try {
+      const progressDataArray: ProgressData[] = results.map(result => {
+        const question = currentTest?.result.questions.find(q => q.id === result.id);
+        return {
+          questionId: result.id,
+          category: deriveCategory(question?.prompt || ''),
+          difficulty: currentDifficulty,
+          isCorrect: result.correct,
+          score: result.score,
+          maxScore: result.max,
+          timeSpent: timeSpent / results.length // Average time per question
+        };
+      });
+
+      const response = await fetch('/api/progress', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          progressData: progressDataArray,
+          sessionMetadata: {
+            topics: selectedTopics,
+            framework: selectedFramework,
+            difficulty: currentDifficulty
+          }
+        })
+      });
+
+      const result = await response.json();
+      if (result.ok && result.recommendations) {
+        // Update difficulty based on recommendations
+        if (result.recommendations.adjustDifficulty) {
+          setCurrentDifficulty(result.recommendations.adjustDifficulty);
+        }
+        
+        // Refresh progress stats
+        await loadProgressStats();
+      }
+    } catch (error) {
+      console.error('Failed to track progress:', error);
+    }
+  };
+
+  // Derive category from question content
+  const deriveCategory = (prompt: string): string => {
+    const lower = prompt.toLowerCase();
+    if (lower.includes('html') || lower.includes('element') || lower.includes('tag')) return 'HTML';
+    if (lower.includes('css') || lower.includes('style') || lower.includes('property')) return 'CSS';
+    if (lower.includes('javascript') || lower.includes('js') || lower.includes('function')) return 'JavaScript';
+    if (lower.includes('react') || lower.includes('component') || lower.includes('jsx')) return 'React';
+    if (lower.includes('api') || lower.includes('fetch') || lower.includes('ajax')) return 'APIs';
+    if (lower.includes('dom') || lower.includes('document') || lower.includes('element')) return 'DOM';
+    return 'General';
   };
 
   // Get explanations for missed questions
@@ -300,7 +430,7 @@ export default function TestTrainer() {
     setAnswers(newAnswers);
     
     saveSession({
-      currentTest,
+      currentTest: currentTest || undefined,
       answers: newAnswers,
       currentAttempt,
       autoRegenerate,
@@ -317,6 +447,10 @@ export default function TestTrainer() {
     setCurrentAttempt(0);
     setSessionComplete(false);
     setLastResponse(null);
+    setProgressStats(null);
+    setCurrentDifficulty('junior');
+    setSelectedTopics(['HTML', 'CSS', 'JavaScript']);
+    setSelectedFramework('vanilla');
     localStorage.removeItem('testTrainerSession');
   };
 
@@ -345,6 +479,145 @@ export default function TestTrainer() {
           )}
         </div>
 
+        {/* Adaptive Learning Progress Dashboard */}
+        {progressStats && (
+          <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+              🎯 Adaptive Learning Progress
+              <span className="text-sm font-normal text-gray-600">
+                (AI automatically adjusts difficulty based on your performance)
+              </span>
+            </h2>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+              {/* Overall Stats */}
+              <div className="bg-gradient-to-r from-blue-50 to-blue-100 p-4 rounded-lg">
+                <h3 className="font-semibold text-blue-900 mb-2">📊 Overall Performance</h3>
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-blue-700">Accuracy:</span>
+                    <span className="font-bold text-blue-900">
+                      {progressStats.overallAccuracy.toFixed(1)}%
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-blue-700">Questions:</span>
+                    <span className="font-bold text-blue-900">
+                      {progressStats.totalCorrect}/{progressStats.totalQuestions}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-blue-700">Streak:</span>
+                    <span className="font-bold text-blue-900">
+                      {progressStats.streak} correct
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Difficulty Adjustment */}
+              <div className="bg-gradient-to-r from-green-50 to-green-100 p-4 rounded-lg">
+                <h3 className="font-semibold text-green-900 mb-2">⚙️ Difficulty Adjustment</h3>
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-green-700">Current:</span>
+                    <span className="font-bold text-green-900 capitalize">
+                      {progressStats.currentDifficulty}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-green-700">Recommended:</span>
+                    <span className="font-bold text-green-900 capitalize">
+                      {progressStats.recommendedDifficulty}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-green-700">Trend:</span>
+                    <span className="font-bold text-green-900">
+                      {progressStats.improvementTrend}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Learning Velocity */}
+              <div className="bg-gradient-to-r from-purple-50 to-purple-100 p-4 rounded-lg">
+                <h3 className="font-semibold text-purple-900 mb-2">🚀 Learning Velocity</h3>
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-purple-700">Speed:</span>
+                    <span className="font-bold text-purple-900">
+                      {progressStats.learningVelocity.toFixed(1)}x
+                    </span>
+                  </div>
+                  <div className="text-xs text-purple-700 mt-2">
+                    {progressStats.learningVelocity > 1.2 
+                      ? '🔥 You\'re learning fast! Ready for harder questions.'
+                      : progressStats.learningVelocity > 0.8
+                      ? '✅ Steady progress. Keep it up!'
+                      : '🎯 Take your time. Focus on understanding concepts.'
+                    }
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Category Performance */}
+            <div className="mb-6">
+              <h3 className="font-semibold mb-3">📈 Performance by Category</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {Object.entries(progressStats.categoryStats).map(([category, stats]) => (
+                  <div key={category} className="bg-gray-50 p-3 rounded-lg">
+                    <div className="text-sm font-medium text-gray-700">{category}</div>
+                    <div className="text-lg font-bold">
+                      <span className={
+                        stats.accuracy >= 80 ? 'text-green-600' :
+                        stats.accuracy >= 60 ? 'text-yellow-600' : 'text-red-600'
+                      }>
+                        {stats.accuracy.toFixed(0)}%
+                      </span>
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {stats.correct}/{stats.total} correct
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Strengths and Weaknesses */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <h3 className="font-semibold text-green-700 mb-2">💪 Strong Areas</h3>
+                <div className="flex flex-wrap gap-2">
+                  {progressStats.strongAreas.map((area, idx) => (
+                    <span key={idx} className="bg-green-100 text-green-800 px-2 py-1 rounded text-sm">
+                      ✅ {area}
+                    </span>
+                  ))}
+                  {progressStats.strongAreas.length === 0 && (
+                    <span className="text-gray-500 text-sm">Keep practicing to identify strong areas</span>
+                  )}
+                </div>
+              </div>
+              
+              <div>
+                <h3 className="font-semibold text-red-700 mb-2">🎯 Areas for Improvement</h3>
+                <div className="flex flex-wrap gap-2">
+                  {progressStats.weakAreas.map((area, idx) => (
+                    <span key={idx} className="bg-red-100 text-red-800 px-2 py-1 rounded text-sm">
+                      📚 {area}
+                    </span>
+                  ))}
+                  {progressStats.weakAreas.length === 0 && (
+                    <span className="text-gray-500 text-sm">Great! No major weak areas identified</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Controls */}
         <div className="bg-white rounded-lg shadow-md p-6 mb-6">
           <h2 className="text-xl font-semibold mb-4">Web Development Test Configuration</h2>
@@ -358,8 +631,25 @@ export default function TestTrainer() {
                   <input
                     type="checkbox"
                     className="w-4 h-4"
+                    checked={selectedTopics.includes(topic)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedTopics([...selectedTopics, topic]);
+                      } else {
+                        setSelectedTopics(selectedTopics.filter(t => t !== topic));
+                      }
+                    }}
                   />
                   <span className="text-sm">{topic}</span>
+                  {progressStats?.categoryStats[topic] && (
+                    <span className={`text-xs px-1 rounded ${
+                      progressStats.categoryStats[topic].accuracy >= 80 ? 'bg-green-100 text-green-600' :
+                      progressStats.categoryStats[topic].accuracy >= 60 ? 'bg-yellow-100 text-yellow-600' :
+                      'bg-red-100 text-red-600'
+                    }`}>
+                      {progressStats.categoryStats[topic].accuracy.toFixed(0)}%
+                    </span>
+                  )}
                 </label>
               ))}
             </div>
@@ -369,7 +659,11 @@ export default function TestTrainer() {
           <div className="mb-6">
             <label className="flex items-center gap-2">
               <span className="font-medium">Framework Focus:</span>
-              <select className="px-3 py-2 border border-gray-300 rounded">
+              <select 
+                className="px-3 py-2 border border-gray-300 rounded"
+                value={selectedFramework}
+                onChange={(e) => setSelectedFramework(e.target.value)}
+              >
                 <option value="vanilla">Vanilla JS/HTML/CSS</option>
                 <option value="react">React</option>
                 <option value="vue">Vue.js</option>
@@ -385,12 +679,18 @@ export default function TestTrainer() {
               <span className="font-medium">Difficulty:</span>
               <select 
                 className="px-3 py-2 border border-gray-300 rounded"
-                defaultValue="junior"
+                value={currentDifficulty}
+                onChange={(e) => setCurrentDifficulty(e.target.value)}
               >
                 <option value="beginner">Beginner (0-6 months)</option>
                 <option value="junior">Junior (6 months - 2 years)</option>
                 <option value="intermediate">Intermediate (2+ years)</option>
               </select>
+              {progressStats && progressStats.recommendedDifficulty !== currentDifficulty && (
+                <span className="text-sm text-blue-600 bg-blue-50 px-2 py-1 rounded">
+                  💡 AI recommends: {progressStats.recommendedDifficulty}
+                </span>
+              )}
             </label>
           </div>
 
@@ -410,6 +710,15 @@ export default function TestTrainer() {
             >
               Reset Session
             </button>
+            
+            {progressStats && (
+              <button
+                onClick={loadProgressStats}
+                className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-2 rounded-lg font-medium"
+              >
+                Refresh Progress
+              </button>
+            )}
           </div>
 
           {/* Session Settings */}
@@ -437,7 +746,20 @@ export default function TestTrainer() {
             </label>
 
             <div className="text-sm text-gray-600">
-              <strong>AI Agents Active:</strong> Test Generator • Code Checker • Learning Assistant
+              <strong>AI Agents Active:</strong> Test Generator • Code Checker • Learning Assistant • Adaptive Difficulty
+              {progressStats && (
+                <div className="mt-1 text-xs">
+                  {progressStats.overallAccuracy < 50 && (
+                    <span className="text-blue-600">🎯 AI reducing difficulty to help you learn</span>
+                  )}
+                  {progressStats.overallAccuracy > 85 && (
+                    <span className="text-green-600">🚀 AI increasing difficulty to challenge you</span>
+                  )}
+                  {progressStats.overallAccuracy >= 50 && progressStats.overallAccuracy <= 85 && (
+                    <span className="text-gray-600">✅ AI maintaining optimal difficulty level</span>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -449,7 +771,24 @@ export default function TestTrainer() {
             <p className="mb-2">
               You achieved {gradeResult.totalScorePercent.toFixed(1)}% in {currentAttempt} attempts!
             </p>
-            <p>Earned {gradeResult.earnedPoints} out of {gradeResult.totalPoints} points.</p>
+            <p className="mb-3">Earned {gradeResult.earnedPoints} out of {gradeResult.totalPoints} points.</p>
+            
+            {progressStats && (
+              <div className="bg-green-50 border border-green-200 rounded p-3 mt-3">
+                <p className="font-medium text-green-800 mb-2">🧠 Adaptive Learning Insights:</p>
+                <div className="text-sm text-green-700 space-y-1">
+                  <p>• Overall accuracy: {progressStats.overallAccuracy.toFixed(1)}%</p>
+                  <p>• Learning velocity: {progressStats.learningVelocity.toFixed(1)}x speed</p>
+                  <p>• Current streak: {progressStats.streak} correct answers</p>
+                  {progressStats.strongAreas.length > 0 && (
+                    <p>• Strong areas: {progressStats.strongAreas.join(', ')}</p>
+                  )}
+                  {progressStats.recommendedDifficulty !== currentDifficulty && (
+                    <p>• Recommended next difficulty: {progressStats.recommendedDifficulty}</p>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -542,7 +881,7 @@ export default function TestTrainer() {
                               <p className="text-yellow-700">{explanation.stepByStepExplanation.whatWentWrong}</p>
                             </div>
                             <div>
-                              <span className="font-medium text-orange-700">Why it's wrong:</span>
+                              <span className="font-medium text-orange-700">Why it&apos;s wrong:</span>
                               <p className="text-yellow-700">{explanation.stepByStepExplanation.whyItsWrong}</p>
                             </div>
                             <div>

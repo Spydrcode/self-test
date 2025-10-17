@@ -5,6 +5,42 @@
  * Provides specialized agents for junior-level web development testing
  */
 
+// Set silent mode to prevent dotenv debug output
+process.env.NODE_ENV = process.env.NODE_ENV || "production";
+
+// Load environment variables
+import dotenv from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
+
+// Get the directory of this file
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Load .env file from this directory or parent directory
+// Completely disable dotenv verbose output that interferes with JSON-RPC
+process.env.DOTENV_CONFIG_VERBOSE = "";
+process.env.DEBUG = "";
+
+// Temporarily redirect stdout during dotenv loading
+const originalStdoutWrite = process.stdout.write;
+process.stdout.write = function() {
+  return true;
+};
+
+try {
+  dotenv.config({ path: path.join(__dirname, ".env") });
+  if (!process.env.OPENAI_API_KEY) {
+    dotenv.config({ path: path.join(__dirname, "..", ".env.local") });
+  }
+} catch (error) {
+  // Use stderr to avoid interfering with JSON-RPC on stdout
+  console.error("Failed to load environment variables:", error);
+}
+
+// Restore stdout after dotenv loading
+process.stdout.write = originalStdoutWrite;
+
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -13,6 +49,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 
 // Import our specialized agents
+import { AdaptiveLearningAgent } from "./agents/adaptive-learning-agent.js";
 import { AnswerExplanationAgent } from "./agents/answer-explanation-agent.js";
 import { TestCheckerAgent } from "./agents/test-checker.js";
 import { TestGeneratorAgent } from "./agents/test-generator.js";
@@ -37,6 +74,7 @@ class TestTrainerMCPServer {
     this.testChecker = new TestCheckerAgent();
     this.utility = new UtilityAgent();
     this.answerExplainer = new AnswerExplanationAgent();
+    this.adaptiveLearning = new AdaptiveLearningAgent();
 
     this.setupToolHandlers();
   }
@@ -244,6 +282,81 @@ class TestTrainerMCPServer {
               required: ["code", "language"],
             },
           },
+
+          // Adaptive Learning Tools
+          {
+            name: "track_learning_progress",
+            description:
+              "Track student progress and adjust difficulty based on performance",
+            inputSchema: {
+              type: "object",
+              properties: {
+                userId: {
+                  type: "string",
+                  description:
+                    "Student identifier (optional, defaults to 'default')",
+                },
+                testResults: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      questionId: { type: "string" },
+                      correct: { type: "boolean" },
+                      category: { type: "string" },
+                      difficulty: { type: "string" },
+                      type: { type: "string" },
+                      timeSpent: { type: "number" },
+                    },
+                    required: ["correct", "category"],
+                  },
+                  description: "Array of test result objects",
+                },
+                currentDifficulty: {
+                  type: "string",
+                  enum: ["beginner", "junior", "intermediate", "advanced"],
+                  description: "Current difficulty level",
+                },
+                subject: {
+                  type: "string",
+                  enum: [
+                    "html",
+                    "css",
+                    "javascript",
+                    "react",
+                    "vue",
+                    "angular",
+                    "apis",
+                    "general",
+                  ],
+                  description: "Subject area being tested",
+                },
+              },
+              required: ["testResults"],
+            },
+          },
+
+          {
+            name: "get_progress_stats",
+            description:
+              "Get comprehensive progress statistics and learning analytics",
+            inputSchema: {
+              type: "object",
+              properties: {
+                userId: {
+                  type: "string",
+                  description:
+                    "Student identifier (optional, defaults to 'default')",
+                },
+                timeframe: {
+                  type: "string",
+                  enum: ["day", "week", "month", "all"],
+                  description: "Time period for statistics",
+                },
+              },
+              required: [],
+            },
+          },
         ],
       };
     });
@@ -272,6 +385,12 @@ class TestTrainerMCPServer {
           case "validate_web_code":
             return await this.utility.validateCode(args);
 
+          case "track_learning_progress":
+            return await this.adaptiveLearning.trackProgress(args);
+
+          case "get_progress_stats":
+            return await this.adaptiveLearning.getProgressStats(args);
+
           default:
             throw new Error(`Unknown tool: ${name}`);
         }
@@ -292,10 +411,14 @@ class TestTrainerMCPServer {
   async run() {
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
-    console.error("Test Trainer MCP Server running on stdio");
+    // Note: Startup message commented out to prevent JSON parsing interference
+    // console.error("Test Trainer MCP Server running on stdio");
   }
 }
 
 // Start the server
 const server = new TestTrainerMCPServer();
-server.run().catch(console.error);
+server.run().catch((error) => {
+  console.error("MCP Server Error:", error);
+  process.exit(1);
+});

@@ -3,9 +3,6 @@
  * Provides interface between Next.js API routes and specialized AI agents
  */
 
-import { spawn } from "child_process";
-import path from "path";
-
 export class AgentCoordinator {
   constructor() {
     this.mcpProcess = null;
@@ -16,26 +13,77 @@ export class AgentCoordinator {
   }
 
   async initialize() {
-    if (this.isConnected) return;
+    if (this.isConnected) {
+      return true;
+    }
 
     try {
-      // Start the MCP server process
+      console.log("🔌 Connecting to MCP server...");
+
+      // In Vercel, use HTTP API instead of child process
+      if (process.env.VERCEL || process.env.VERCEL_ENV) {
+        this.useHttpApi = true;
+        // Test connection to our MCP API endpoint
+        const response = await fetch("/api/mcp", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            method: "initialize",
+            params: {
+              protocolVersion: "2024-11-05",
+              capabilities: {},
+              clientInfo: { name: "GPT Test Trainer", version: "1.0.0" },
+            },
+            id: 1,
+          }),
+        });
+
+        if (response.ok) {
+          this.isConnected = true;
+          console.log("🔗 MCP HTTP API connection successful");
+          console.log("✅ MCP Agent system connected successfully");
+          console.log(
+            "🎯 All 5 AI agents ready: Test Generator, Checker, Explainer, Utility, Adaptive Learning"
+          );
+          return true;
+        } else {
+          throw new Error("Failed to connect to MCP HTTP API");
+        }
+      }
+
+      // Original child process code for local development
+      // Use eval to hide Node.js imports from bundler
+      const { spawn } = eval("require")("child_process");
+      const path = eval("require")("path");
+
+      // Start MCP server process
       const mcpServerPath = path.join(process.cwd(), "mcp-server", "index.js");
+
       this.mcpProcess = spawn("node", [mcpServerPath], {
         stdio: ["pipe", "pipe", "pipe"],
         env: { ...process.env },
+        cwd: process.cwd(),
       });
 
       // Set up communication handlers
       this.setupCommunication();
 
       // Wait for connection
-      await this.waitForConnection();
+      const connected = await this.waitForConnection(10000);
 
-      console.log("MCP Agent system initialized successfully");
+      if (connected) {
+        console.log("✅ MCP Agent system connected successfully");
+        console.log(
+          "🎯 All 5 AI agents ready: Test Generator, Checker, Explainer, Utility, Adaptive Learning"
+        );
+        return true;
+      } else {
+        throw new Error("Failed to connect to MCP server within timeout");
+      }
     } catch (error) {
-      console.error("Failed to initialize MCP agents:", error);
-      throw error;
+      console.error("❌ MCP connection failed:", error.message);
+      throw error; // Don't fall back, throw error to force MCP usage
     }
   }
 
@@ -51,31 +99,75 @@ export class AgentCoordinator {
       buffer = lines.pop() || ""; // Keep incomplete line in buffer
 
       lines.forEach((line) => {
-        if (line.trim()) {
+        const trimmedLine = line.trim();
+        // Only try to parse lines that look like valid JSON-RPC messages
+        // JSON-RPC messages should start with '{' and contain "jsonrpc" or "id"
+        if (
+          trimmedLine &&
+          trimmedLine.startsWith("{") &&
+          (trimmedLine.includes('"jsonrpc"') ||
+            trimmedLine.includes('"id"') ||
+            trimmedLine.includes('"method"'))
+        ) {
           try {
-            const message = JSON.parse(line);
+            const message = JSON.parse(trimmedLine);
             this.handleResponse(message);
           } catch (error) {
             console.error("Failed to parse MCP response:", error);
           }
         }
+        // Ignore non-JSON-RPC lines (like dotenv output, logs, etc.)
       });
     });
 
     // Handle errors
     this.mcpProcess.stderr.on("data", (data) => {
       const errorMsg = data.toString();
-      if (errorMsg.includes("MCP Server running")) {
-        this.isConnected = true;
-      } else {
-        console.error("MCP Server error:", errorMsg);
-      }
+      console.error("MCP Server error:", errorMsg);
     });
+
+    // Send MCP initialization request
+    setTimeout(() => {
+      this.sendInitializeRequest();
+    }, 1000); // Give the server time to start
 
     this.mcpProcess.on("exit", (code) => {
       console.log(`MCP Server exited with code ${code}`);
       this.isConnected = false;
     });
+  }
+
+  sendInitializeRequest() {
+    const requestId = ++this.requestId;
+    const message = {
+      jsonrpc: "2.0",
+      id: requestId,
+      method: "initialize",
+      params: {
+        protocolVersion: "2024-11-05",
+        capabilities: {},
+        clientInfo: {
+          name: "GPT Test Trainer",
+          version: "1.0.0",
+        },
+      },
+    };
+
+    // Store callback for this request
+    this.responseCallbacks.set(requestId, {
+      resolve: () => {
+        this.isConnected = true;
+        console.log("🔗 MCP initialization successful");
+      },
+      reject: (error) => {
+        console.error("❌ MCP initialization failed:", error);
+      },
+    });
+
+    // Send the message
+    if (this.mcpProcess && this.mcpProcess.stdin) {
+      this.mcpProcess.stdin.write(JSON.stringify(message) + "\n");
+    }
   }
 
   async waitForConnection() {
@@ -87,16 +179,46 @@ export class AgentCoordinator {
       attempts++;
     }
 
-    if (!this.isConnected) {
-      throw new Error("Failed to connect to MCP server");
-    }
+    return this.isConnected;
   }
 
   async sendToolCall(toolName, arguments_) {
     if (!this.isConnected) {
-      await this.initialize();
+      const initialized = await this.initialize();
+      if (!initialized) {
+        throw new Error("MCP agents not available");
+      }
     }
 
+    // Use HTTP API in Vercel environment
+    if (this.useHttpApi) {
+      const response = await fetch("/api/mcp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "tools/call",
+          params: {
+            name: toolName,
+            arguments: arguments_,
+          },
+          id: ++this.requestId,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      if (result.error) {
+        throw new Error(result.error.message || "MCP tool call failed");
+      }
+
+      return result.result;
+    }
+
+    // Original child process communication for local development
     return new Promise((resolve, reject) => {
       const requestId = ++this.requestId;
 
@@ -212,30 +334,55 @@ export class AgentCoordinator {
     }
   }
 
-  async deriveFocusTopics(missedQuestions, gradeResults) {
+  // Progress tracking and adaptive learning methods
+  async trackLearningProgress(
+    testResults,
+    currentDifficulty = "junior",
+    subject = "general",
+    userId = "default"
+  ) {
+    // Initialize MCP connection if not connected
+    if (!this.isConnected) {
+      await this.initialize();
+    }
+
+    if (!this.isConnected) {
+      throw new Error("MCP server required but not connected");
+    }
+
     try {
-      const result = await this.sendToolCall("derive_focus_topics", {
-        missedQuestions,
-        gradeResults,
+      const result = await this.sendToolCall("track_learning_progress", {
+        userId,
+        testResults,
+        currentDifficulty,
+        subject,
       });
 
-      return this.parseToolResponse(result);
+      return { ok: true, result: this.parseToolResponse(result) };
     } catch (error) {
-      throw new Error(`Focus topic derivation failed: ${error.message}`);
+      throw new Error(`Progress tracking failed: ${error.message}`);
     }
   }
 
-  async validateWebCode(code, language, context = "") {
+  async getProgressStats(userId = "default", timeframe = "week") {
+    // Initialize MCP connection if not connected
+    if (!this.isConnected) {
+      await this.initialize();
+    }
+
+    if (!this.isConnected) {
+      throw new Error("MCP server required but not connected");
+    }
+
     try {
-      const result = await this.sendToolCall("validate_web_code", {
-        code,
-        language,
-        context,
+      const result = await this.sendToolCall("get_progress_stats", {
+        userId,
+        timeframe,
       });
 
-      return this.parseToolResponse(result);
+      return { ok: true, result: this.parseToolResponse(result) };
     } catch (error) {
-      throw new Error(`Code validation failed: ${error.message}`);
+      throw new Error(`Progress stats failed: ${error.message}`);
     }
   }
 
@@ -246,7 +393,7 @@ export class AgentCoordinator {
 
     try {
       return JSON.parse(result.content[0].text);
-    } catch (error) {
+    } catch {
       throw new Error("Failed to parse tool response JSON");
     }
   }
