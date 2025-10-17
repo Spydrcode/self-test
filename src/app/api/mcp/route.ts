@@ -55,11 +55,6 @@ interface ProgressParams {
   userId?: string;
 }
 
-interface StatsParams {
-  userId?: string;
-  timeframe?: string;
-}
-
 // Initialize OpenAI client
 function getOpenAI() {
   return new OpenAI({
@@ -425,7 +420,7 @@ export async function POST(request: NextRequest) {
 
       if (toolName === "generate_jr_web_test") {
         agent = agents["test-generator"];
-      } else if (toolName === "grade_web_dev_test") {
+      } else if (toolName === "grade_web_test") {
         agent = agents["test-checker"];
       } else if (toolName === "explain_wrong_answer") {
         agent = agents["answer-explanation"];
@@ -442,12 +437,12 @@ export async function POST(request: NextRequest) {
       // Execute the tool
       let result;
       switch (toolName) {
-        case "generate_test":
+        case "generate_jr_web_test":
           result = await (agent as TestGeneratorAgent).generateJrWebTest(
             toolArgs as TestParams
           );
           break;
-        case "grade_test":
+        case "grade_web_test":
           result = await (agent as TestCheckerAgent).gradeWebDevTest(
             toolArgs as GradeParams
           );
