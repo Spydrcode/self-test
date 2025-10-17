@@ -443,19 +443,29 @@ export async function POST(request: NextRequest) {
       let result;
       switch (toolName) {
         case "generate_test":
-          result = await (agent as TestGeneratorAgent).generateJrWebTest(toolArgs as TestParams);
+          result = await (agent as TestGeneratorAgent).generateJrWebTest(
+            toolArgs as TestParams
+          );
           break;
         case "grade_test":
-          result = await (agent as TestCheckerAgent).gradeWebDevTest(toolArgs as GradeParams);
+          result = await (agent as TestCheckerAgent).gradeWebDevTest(
+            toolArgs as GradeParams
+          );
           break;
         case "explain_wrong_answer":
-          result = await (agent as AnswerExplanationAgent).explainWrongAnswer(toolArgs as ExplainParams);
+          result = await (agent as AnswerExplanationAgent).explainWrongAnswer(
+            toolArgs as ExplainParams
+          );
           break;
         case "explain_web_concept":
-          result = await (agent as AnswerExplanationAgent).explainWebConcept(toolArgs as ConceptParams);
+          result = await (agent as AnswerExplanationAgent).explainWebConcept(
+            toolArgs as ConceptParams
+          );
           break;
         case "track_learning_progress":
-          result = await (agent as AdaptiveLearningAgent).trackLearningProgress(toolArgs as ProgressParams);
+          result = await (agent as AdaptiveLearningAgent).trackLearningProgress(
+            toolArgs as ProgressParams
+          );
           break;
         case "get_progress_stats":
           result = await (agent as AdaptiveLearningAgent).getProgressStats();
@@ -480,7 +490,8 @@ export async function POST(request: NextRequest) {
 
     throw new Error(`Unknown method: ${method}`);
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Internal server error";
+    const errorMessage =
+      error instanceof Error ? error.message : "Internal server error";
     return NextResponse.json(
       {
         jsonrpc: "2.0",
