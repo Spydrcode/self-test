@@ -14,11 +14,20 @@ export class AgentCoordinator {
 
   // Helper function to get the correct MCP API URL
   getMcpApiUrl() {
-    // In server-side context (API routes), use localhost
+    // In server-side context (API routes), we need an absolute URL
     if (typeof window === "undefined") {
-      return process.env.VERCEL_URL
-        ? `https://${process.env.VERCEL_URL}/api/mcp`
-        : "http://localhost:3000/api/mcp";
+      // For Vercel deployments, try multiple possible environment variables
+      const host =
+        process.env.VERCEL_URL ||
+        process.env.NEXT_PUBLIC_VERCEL_URL ||
+        process.env.VERCEL_PROJECT_PRODUCTION_URL;
+
+      if (host && (process.env.VERCEL || process.env.VERCEL_ENV)) {
+        return `https://${host}/api/mcp`;
+      }
+
+      // Local development fallback
+      return "http://localhost:3000/api/mcp";
     }
     // In browser context, use relative URL
     return "/api/mcp";
