@@ -6,22 +6,31 @@
     "dev": "next dev --turbopack",
     "build": "next build --turbopack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "mcp:install": "cd mcp-server && npm install",
+    "mcp:start": "node start-mcp-server.js",
+    "mcp:dev": "cd mcp-server && node --inspect index.js",
+    "dev:full": "concurrently \"npm run mcp:start\" \"npm run dev\"",
+    "setup": "npm install && npm run mcp:install"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.20.1",
+    "next": "15.5.6",
+    "openai": "^6.4.0",
     "react": "19.1.0",
     "react-dom": "19.1.0",
-    "next": "15.5.6"
+    "zod": "^3.25.76"
   },
   "devDependencies": {
-    "typescript": "^5",
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@tailwindcss/postcss": "^4",
-    "tailwindcss": "^4",
+    "concurrently": "^9.2.1",
     "eslint": "^9",
     "eslint-config-next": "15.5.6",
-    "@eslint/eslintrc": "^3"
+    "tailwindcss": "^4",
+    "typescript": "^5"
   }
 }
