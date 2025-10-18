@@ -128,15 +128,7 @@ interface ProgressStats {
   learningVelocity: number;
 }
 
-interface ProgressData {
-  questionId: number;
-  category: string;
-  difficulty: string;
-  isCorrect: boolean;
-  score: number;
-  maxScore: number;
-  timeSpent: number;
-}
+
 
 export default function TestTrainer() {
   // State management
@@ -150,6 +142,8 @@ export default function TestTrainer() {
   const [currentAttempt, setCurrentAttempt] = useState(0);
   const [sessionComplete, setSessionComplete] = useState(false);
   const [lastResponse, setLastResponse] = useState<TestResponse | GradeResponse | ExplanationResponse | null>(null);
+  const [showResults, setShowResults] = useState(false);
+  const [canProceed, setCanProceed] = useState(false);
   
   // Adaptive Learning state
   const [progressStats, setProgressStats] = useState<ProgressStats | null>(null);
@@ -172,6 +166,8 @@ export default function TestTrainer() {
         setCurrentDifficulty(data.currentDifficulty || 'junior');
         setSelectedTopics(data.selectedTopics || ['HTML', 'CSS', 'JavaScript']);
         setSelectedFramework(data.selectedFramework || 'vanilla');
+        setShowResults(data.showResults || false);
+        setCanProceed(data.canProceed || false);
       } catch (e) {
         console.error('Failed to load session:', e);
       }
@@ -206,9 +202,31 @@ export default function TestTrainer() {
       ...data,
       currentDifficulty,
       selectedTopics,
-      selectedFramework
+      selectedFramework,
+      showResults,
+      canProceed
     };
     localStorage.setItem('testTrainerSession', JSON.stringify(sessionData));
+  };
+
+  // Continue to next test with focus topics
+  const continueWithFocusTopics = async () => {
+    if (!gradeResult) return;
+    
+    // Check max attempts
+    if (currentAttempt >= maxAttempts) {
+      alert(`You've reached the maximum number of attempts (${maxAttempts}). Please reset the session to continue.`);
+      return;
+    }
+    
+    // Derive focus topics from missed questions
+    const focusTopics = deriveFocusTopics(gradeResult.results);
+    await generateTest(focusTopics);
+  };
+
+  // Generate completely new test
+  const generateNewTest = async () => {
+    await generateTest([]);
   };
 
   // Generate new test
@@ -217,6 +235,8 @@ export default function TestTrainer() {
     setGradeResult(null);
     setExplanations({});
     setAnswers({});
+    setShowResults(false);
+    setCanProceed(false);
     setQuestionStartTime(Date.now());
     
     try {
@@ -280,6 +300,7 @@ export default function TestTrainer() {
 
       if (result.ok) {
         setGradeResult(result.result);
+        setShowResults(true);
         
         // Track progress for adaptive learning
         await trackProgressData(result.result.results);
@@ -288,28 +309,15 @@ export default function TestTrainer() {
         const scorePercent = result.result.totalScorePercent ?? result.result.overallScore ?? 0;
         if (scorePercent >= TARGET_PERCENT) {
           setSessionComplete(true);
+          setCanProceed(true);
           return;
         }
 
         // Get explanations for missed questions
         await getExplanationsForMissed(result.result.results);
-
-        // Auto-regenerate if enabled and under max attempts
-        if (autoRegenerate && currentAttempt < maxAttempts) {
-          if (currentAttempt >= 3) {
-            const confirm = window.confirm(
-              `This will be attempt ${currentAttempt + 1} of ${maxAttempts}. Continue auto-regenerating?`
-            );
-            if (!confirm) {
-              setAutoRegenerate(false);
-              return;
-            }
-          }
-          
-          // Derive focus topics from missed questions
-          const focusTopics = deriveFocusTopics(result.result.results);
-          setTimeout(() => generateTest(focusTopics), 2000); // Short delay to show explanations
-        }
+        
+        // Enable proceed button after explanations are loaded
+        setCanProceed(true);
       } else {
         alert(`Failed to grade test: ${result.error}`);
       }
@@ -323,7 +331,6 @@ export default function TestTrainer() {
 
   // Track progress data for adaptive learning
   const trackProgressData = async (results: GradeResult[]) => {
-    const timeSpent = Date.now() - questionStartTime;
     
     try {
       const testResults = results.map(result => ({
@@ -444,6 +451,8 @@ export default function TestTrainer() {
     setCurrentDifficulty('junior');
     setSelectedTopics(['HTML', 'CSS', 'JavaScript']);
     setSelectedFramework('vanilla');
+    setShowResults(false);
+    setCanProceed(false);
     localStorage.removeItem('testTrainerSession');
   };
 
@@ -1014,6 +1023,7 @@ export default function TestTrainer() {
               );
             })}
             
+            {/* Submit button when test is not graded yet */}
             {currentTest && !gradeResult && (
               <button
                 onClick={submitAnswers}
@@ -1021,6 +1031,87 @@ export default function TestTrainer() {
                 className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white py-3 px-6 rounded-lg font-medium"
               >
                 {isLoading ? 'Grading...' : 'Submit Answers'}
+              </button>
+            )}
+
+            {/* User controls after grading */}
+            {showResults && gradeResult && canProceed && !sessionComplete && (
+              <div className="mt-6 p-6 bg-blue-50 border border-blue-200 rounded-lg">
+                <h3 className="text-lg font-semibold text-blue-900 mb-4">
+                  📋 Review Complete - What would you like to do next?
+                </h3>
+                
+                <div className="space-y-4">
+                  <div className="bg-white p-4 rounded-lg border border-blue-200">
+                    <p className="text-sm text-gray-700 mb-4">
+                      <strong>Your Score:</strong> {(gradeResult.totalScorePercent ?? gradeResult.overallScore ?? 0).toFixed(1)}% 
+                      ({gradeResult.earnedPoints ?? 0}/{gradeResult.totalPoints ?? 100} points)
+                    </p>
+                    
+                    <div className="flex flex-col md:flex-row gap-3">
+                      {/* Focus on weak areas */}
+                      {gradeResult.results.some(r => r.score < r.max) && currentAttempt < maxAttempts && (
+                        <button
+                          onClick={continueWithFocusTopics}
+                          disabled={isLoading}
+                          className="flex-1 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 text-white py-3 px-4 rounded-lg font-medium"
+                        >
+                          🎯 Practice Weak Areas
+                          <div className="text-xs mt-1 opacity-90">
+                            Focus on missed topics (Attempt {currentAttempt + 1}/{maxAttempts})
+                          </div>
+                        </button>
+                      )}
+                      
+                      {/* Generate completely new test */}
+                      <button
+                        onClick={generateNewTest}
+                        disabled={isLoading}
+                        className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white py-3 px-4 rounded-lg font-medium"
+                      >
+                        🆕 New Random Test
+                        <div className="text-xs mt-1 opacity-90">
+                          Fresh questions from all topics
+                        </div>
+                      </button>
+                      
+                      {/* Take a break */}
+                      <button
+                        onClick={() => {
+                          setShowResults(false);
+                          setCanProceed(false);
+                        }}
+                        className="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-3 px-4 rounded-lg font-medium"
+                      >
+                        ⏸️ Take a Break
+                        <div className="text-xs mt-1 opacity-90">
+                          Hide results and review later
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+                  
+                  <div className="text-center text-sm text-gray-600">
+                    <p>💡 <strong>Tip:</strong> Take time to understand the explanations above before moving on.</p>
+                    {autoRegenerate && (
+                      <p className="mt-1">
+                        <span className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-xs">
+                          Auto-regenerate is enabled but waiting for your choice
+                        </span>
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Show results button if hidden */}
+            {gradeResult && !showResults && (
+              <button
+                onClick={() => setShowResults(true)}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 px-6 rounded-lg font-medium"
+              >
+                📊 View Test Results & Explanations
               </button>
             )}
           </div>
