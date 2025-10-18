@@ -162,12 +162,12 @@ Create unique, practical scenarios that junior developers encounter in real jobs
 Avoid repetitive patterns. Points sum to 100.`;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4",
+      model: "gpt-4o-mini",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
-      max_tokens: 2000,
+      max_tokens: 1500,
       temperature: 0.6,
     });
 
@@ -247,12 +247,12 @@ ANSWERS: ${JSON.stringify(answers)}
 Provide detailed feedback for each question and overall performance summary.`;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4",
+      model: "gpt-4o-mini",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
-      max_tokens: 1500,
+      max_tokens: 1000,
       temperature: 0.3,
     });
 
@@ -307,12 +307,12 @@ CONTEXT: ${context}
 Be helpful and educational, not just corrective.`;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4",
+      model: "gpt-4o-mini",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
-      max_tokens: 1000,
+      max_tokens: 800,
       temperature: 0.7,
     });
 
@@ -358,12 +358,12 @@ Context: ${context}
 Make it practical and actionable for junior developers.`;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4",
+      model: "gpt-4o-mini",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
-      max_tokens: 800,
+      max_tokens: 600,
       temperature: 0.6,
     });
 
@@ -433,12 +433,12 @@ USER ID: ${userId}
 Provide adaptive learning recommendations and difficulty adjustments.`;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4",
+      model: "gpt-4o-mini",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
-      max_tokens: 1200,
+      max_tokens: 1000,
       temperature: 0.4,
     });
 

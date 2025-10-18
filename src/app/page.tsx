@@ -245,7 +245,7 @@ export default function TestTrainer() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           topics: focusTopics.length > 0 ? focusTopics : selectedTopics,
-          numQuestions: 5,
+          numQuestions: 20,
           difficulty: currentDifficulty,
           framework: selectedFramework,
           focusTopics
@@ -457,7 +457,7 @@ export default function TestTrainer() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
+    <div className="min-h-screen bg-stone-100 py-8">
       <div className="max-w-4xl mx-auto px-4">
         {/* Header */}
         <div className="text-center mb-8">
@@ -465,8 +465,8 @@ export default function TestTrainer() {
             GPT Interview Test Trainer
           </h1>
           <div className="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-4 mb-4">
-            <p className="font-semibold">Current Model: gpt-3.5-turbo</p>
-            <p className="text-sm">Model might be imperfect — verify answers manually.</p>
+            <p className="font-semibold">Current Model: gpt-4o-mini (Cost Optimized)</p>
+            <p className="text-sm">High quality results at ~60x lower cost than GPT-4.</p>
           </div>
           
           {currentAttempt > 0 && (
@@ -686,7 +686,10 @@ export default function TestTrainer() {
               >
                 <option value="beginner">Beginner (0-6 months)</option>
                 <option value="junior">Junior (6 months - 2 years)</option>
-                <option value="intermediate">Intermediate (2+ years)</option>
+                <option value="intermediate">Intermediate (2-5 years)</option>
+                <option value="senior">Senior (5+ years)</option>
+                <option value="lead">Lead/Principal (8+ years)</option>
+                <option value="architect">Staff/Architect (10+ years)</option>
               </select>
               {progressStats && progressStats.recommendedDifficulty !== currentDifficulty && (
                 <span className="text-sm text-blue-600 bg-blue-50 px-2 py-1 rounded">
