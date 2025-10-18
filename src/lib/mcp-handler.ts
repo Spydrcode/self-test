@@ -205,7 +205,71 @@ Avoid repetitive patterns. Points sum to 100.`;
       totalPoints: 100,
     };
 
-    return safeJsonParse(content, fallbackTest);
+    // Parse model output, falling back to deterministic test when necessary
+    const parsed = safeJsonParse(content, fallbackTest) as Record<
+      string,
+      unknown
+    >;
+
+    // Ensure questions array exists
+    if (!parsed.questions || !Array.isArray(parsed.questions)) {
+      parsed.questions = fallbackTest.questions.slice();
+    }
+
+    // Normalize length: fill or trim to requested numQuestions
+    const questions = parsed.questions as Array<Record<string, unknown>>;
+    const currentLen = questions.length;
+    if (currentLen < numQuestions) {
+      const extra = Array.from(
+        { length: numQuestions - currentLen },
+        (_, i) => {
+          const idx = currentLen + i;
+          return {
+            id: idx + 1,
+            type: idx % 2 === 0 ? "mcq" : "short",
+            prompt:
+              idx % 2 === 0
+                ? `Which JavaScript method is used to add an element to the end of an array? (Question ${idx +
+                    1})`
+                : `Explain the difference between let and var in JavaScript. (Question ${idx +
+                    1})`,
+            choices:
+              idx % 2 === 0
+                ? ["push()", "pop()", "shift()", "unshift()"]
+                : undefined,
+            answer:
+              idx % 2 === 0
+                ? "push()"
+                : "let has block scope while var has function scope",
+            rubric:
+              idx % 2 === 0
+                ? ["Correct method for adding to array end"]
+                : ["Mentions scope difference"],
+            points: Math.round(100 / numQuestions),
+            category: "javascript",
+          };
+        }
+      );
+
+      questions.push(...extra);
+      parsed.questions = questions;
+    } else if (currentLen > numQuestions) {
+      parsed.questions = questions.slice(0, numQuestions);
+    }
+
+    // Normalize points and ids, ensure totalPoints
+    const pointsPer = Math.round(100 / numQuestions);
+    const finalQuestions = parsed.questions as Array<Record<string, unknown>>;
+    parsed.questions = finalQuestions.map(
+      (q: Record<string, unknown>, idx: number) => ({
+        ...q,
+        id: idx + 1,
+        points: q.points || pointsPer,
+      })
+    );
+    parsed.totalPoints = 100;
+
+    return parsed;
   }
 }
 
@@ -257,7 +321,7 @@ Provide detailed feedback for each question and overall performance summary.`;
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
-      max_tokens: 1000,
+      max_tokens: 3000,
       temperature: 0.3,
     });
 
@@ -269,7 +333,124 @@ Provide detailed feedback for each question and overall performance summary.`;
       summary: "Grading failed - please try again",
     };
 
-    return safeJsonParse(content, fallbackGrade);
+    const gradeData = safeJsonParse(content, fallbackGrade) as Record<string, unknown>;
+
+    const rawResults = Array.isArray((gradeData as { results?: unknown }).results)
+      ? ((gradeData as { results: Array<Record<string, unknown>> }).results)
+      : [];
+
+    const questions = Array.isArray(test?.result?.questions)
+      ? (test.result.questions as Array<TestQuestion>)
+      : [];
+
+    const normalizedResults: Array<Record<string, unknown>> = [];
+    const answerMap = answers || {};
+    const defaultPoints = questions.length > 0 ? Math.round(100 / questions.length) : 0;
+
+    questions.forEach((question, index) => {
+      const questionId = question?.id ?? index + 1;
+      const key = String(questionId);
+
+      const existing = rawResults.find((result) => {
+        const candidateId = (result.id ?? result.questionId) as unknown;
+        if (typeof candidateId === "number" || typeof candidateId === "string") {
+          return String(candidateId) === key;
+        }
+        return false;
+      });
+
+      const normalized: Record<string, unknown> = existing ? { ...existing } : {};
+
+      normalized.id = questionId;
+
+      const maxPoints = typeof question?.points === "number" ? question.points : defaultPoints;
+      if (typeof normalized.max !== "number") {
+        normalized.max = maxPoints;
+      }
+
+      const expectedAnswer = question?.answer ?? "";
+      if (typeof normalized.expected !== "string" || normalized.expected.length === 0) {
+        normalized.expected = expectedAnswer;
+      }
+
+      const studentAnswerRaw = answerMap[key];
+      const studentAnswer = typeof studentAnswerRaw === "string" ? studentAnswerRaw.trim() : "";
+      normalized.studentAnswer = studentAnswer;
+
+      const hasAnswer = studentAnswer.length > 0;
+
+      if (!hasAnswer) {
+        normalized.correct = false;
+        normalized.score = 0;
+        normalized.feedback = "No answer provided.";
+      } else {
+        if (typeof normalized.score !== "number") {
+          const isExactMatch = studentAnswer.toLowerCase() === expectedAnswer.toLowerCase();
+          normalized.score = isExactMatch ? maxPoints : 0;
+        }
+
+        if (typeof normalized.correct !== "boolean") {
+          const numericScore = typeof normalized.score === "number" ? normalized.score : 0;
+          normalized.correct = numericScore > 0;
+        }
+      }
+
+      normalizedResults.push(normalized);
+    });
+
+    const usedIds = new Set<string>(normalizedResults.map((result, idx) => {
+      const value = result.id;
+      if (typeof value === "number" || typeof value === "string") {
+        return String(value);
+      }
+      return String(idx + 1);
+    }));
+
+    rawResults.forEach((result) => {
+      const candidateId = (result.id ?? result.questionId) as unknown;
+      const key =
+        typeof candidateId === "number" || typeof candidateId === "string"
+          ? String(candidateId)
+          : String(usedIds.size + 1);
+
+      if (!usedIds.has(key)) {
+        usedIds.add(key);
+        const numericId = Number(key);
+        normalizedResults.push({
+          ...result,
+          id: Number.isNaN(numericId) ? key : numericId,
+        });
+      }
+    });
+
+    const totalMax = normalizedResults.reduce((sum, result) => {
+      if (typeof result.max === "number") {
+        return sum + result.max;
+      }
+      return sum;
+    }, 0);
+
+    const totalScore = normalizedResults.reduce((sum, result) => {
+      if (typeof result.score === "number") {
+        return sum + result.score;
+      }
+      return sum;
+    }, 0);
+
+    const overallScore = totalMax > 0 ? Math.round((totalScore / totalMax) * 10000) / 100 : 0;
+    const existingTotalPoints =
+      typeof (gradeData as { totalPoints?: unknown }).totalPoints === "number"
+        ? (gradeData as { totalPoints: number }).totalPoints
+        : undefined;
+
+    const finalGrade: Record<string, unknown> = {
+      ...gradeData,
+      results: normalizedResults,
+      totalPoints: totalMax || existingTotalPoints || 100,
+      overallScore,
+    };
+
+    return finalGrade;
   }
 }
 
@@ -302,7 +483,16 @@ OUTPUT FORMAT:
   "resources": ["Helpful learning resources"]
 }`;
 
-    const userPrompt = `Explain why this answer is wrong:
+    const isBlankAnswer = !studentAnswer || studentAnswer.trim().length === 0;
+    const userPrompt = isBlankAnswer 
+      ? `Provide a helpful explanation for a question that was left blank:
+
+QUESTION: ${JSON.stringify(question)}
+EXPECTED ANSWER: ${expectedAnswer}
+CONTEXT: ${context}
+
+Explain what the correct answer should be and why it's important to know this concept.`
+      : `Explain why this answer is wrong:
 
 QUESTION: ${JSON.stringify(question)}
 STUDENT ANSWER: ${studentAnswer}
@@ -512,8 +702,7 @@ const agents = {
 };
 
 // Direct MCP handler for internal use (avoids HTTP requests)
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function handleMcpRequest(requestBody: any) {
+export async function handleMcpRequest(requestBody: Record<string, unknown>) {
   try {
     const { method, params, id } = requestBody;
 
@@ -537,7 +726,10 @@ export async function handleMcpRequest(requestBody: any) {
 
     // Handle tool calls
     if (method === "tools/call") {
-      const { name: toolName, arguments: toolArgs } = params;
+      const { name: toolName, arguments: toolArgs } = params as Record<
+        string,
+        unknown
+      >;
 
       let agent:
         | TestGeneratorAgent

@@ -150,7 +150,6 @@ export default function TestTrainer() {
   const [currentDifficulty, setCurrentDifficulty] = useState('junior');
   const [selectedTopics, setSelectedTopics] = useState<string[]>(['HTML', 'CSS', 'JavaScript']);
   const [selectedFramework, setSelectedFramework] = useState('vanilla');
-  const [questionStartTime, setQuestionStartTime] = useState<number>(Date.now());
 
   // Load session from localStorage on mount
   useEffect(() => {
@@ -237,7 +236,6 @@ export default function TestTrainer() {
     setAnswers({});
     setShowResults(false);
     setCanProceed(false);
-    setQuestionStartTime(Date.now());
     
     try {
       const response = await fetch('/api/generate', {
@@ -385,12 +383,13 @@ export default function TestTrainer() {
       if (result.score < result.max) {
         try {
           const question = currentTest?.result.questions.find(q => q.id === result.id);
+          const studentAnswer = answers[result.id] || '';
           const response = await fetch('/api/explain', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               question,
-              studentAnswer: answers[result.id] || '',
+              studentAnswer,
               expectedAnswer: result.expected
             })
           });

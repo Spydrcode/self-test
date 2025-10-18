@@ -337,7 +337,7 @@ export class AgentCoordinator {
     try {
       const result = await this.sendToolCall("generate_jr_web_test", {
         topics: options.topics || ["javascript", "html"],
-        numQuestions: options.numQuestions || 5,
+        numQuestions: options.numQuestions || 20,
         difficulty: options.difficulty || "junior",
         focusAreas: options.focusTopics || [],
         framework: options.framework || "vanilla",
