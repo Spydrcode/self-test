@@ -102,7 +102,7 @@ class TestGeneratorAgent {
 
     const {
       topics = ["javascript", "html"],
-      numQuestions = 5,
+      numQuestions = 20,
       difficulty = "junior",
       focusAreas = [],
     } = params;
@@ -110,11 +110,12 @@ class TestGeneratorAgent {
     const systemPrompt = `Generate a JSON formatted web development test for junior developers.
 
 KEY REQUIREMENTS:
+- Generate EXACTLY ${numQuestions} questions (no more, no less)
 - Real-world junior developer scenarios  
 - Practical workplace questions, NOT academic theory
 - Mix of multiple choice (4 options), short answer, and code questions
 - Test SPECIFIC techniques junior devs use daily
-- Points should sum to exactly 100
+- Points should sum to exactly 100 (distribute evenly across questions)
 
 SAMPLE FRAMEWORKS:
 HTML: Forms, semantic tags, accessibility, meta tags
@@ -125,6 +126,10 @@ Frameworks: Basic React/Vue components, state, props, lifecycle
 
 JSON STRUCTURE:
 { "questions":[{"id":1,"type":"mcq"|"short"|"code","prompt":"...","choices":[...],"answer":"...","rubric":["..."],"points":<int>,"category":"html|css|javascript|api|framework"}],"totalPoints":100 }
+
+CRITICAL: You MUST generate exactly ${numQuestions} questions. Each question should have approximately ${Math.round(
+      100 / numQuestions
+    )} points.
 
 VARIETY RULES:
 - Use different real-world scenarios each time
@@ -167,7 +172,7 @@ Avoid repetitive patterns. Points sum to 100.`;
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
-      max_tokens: 1500,
+      max_tokens: 4000,
       temperature: 0.6,
     });
 
@@ -175,28 +180,28 @@ Avoid repetitive patterns. Points sum to 100.`;
 
     // Use safe JSON parsing with fallback
     const fallbackTest = {
-      questions: [
-        {
-          id: 1,
-          type: "mcq",
-          prompt:
-            "Which JavaScript method is used to add an element to the end of an array?",
-          choices: ["push()", "pop()", "shift()", "unshift()"],
-          answer: "push()",
-          rubric: ["Correct method for adding to array end"],
-          points: 50,
-          category: "javascript",
-        },
-        {
-          id: 2,
-          type: "short",
-          prompt: "Explain the difference between let and var in JavaScript.",
-          answer: "let has block scope while var has function scope",
-          rubric: ["Mentions scope difference", "Block vs function scope"],
-          points: 50,
-          category: "javascript",
-        },
-      ],
+      questions: Array.from({ length: numQuestions }, (_, i) => ({
+        id: i + 1,
+        type: i % 2 === 0 ? "mcq" : "short",
+        prompt:
+          i % 2 === 0
+            ? `Which JavaScript method is used to add an element to the end of an array? (Question ${i +
+                1})`
+            : `Explain the difference between let and var in JavaScript. (Question ${i +
+                1})`,
+        choices:
+          i % 2 === 0 ? ["push()", "pop()", "shift()", "unshift()"] : undefined,
+        answer:
+          i % 2 === 0
+            ? "push()"
+            : "let has block scope while var has function scope",
+        rubric:
+          i % 2 === 0
+            ? ["Correct method for adding to array end"]
+            : ["Mentions scope difference", "Block vs function scope"],
+        points: Math.round(100 / numQuestions),
+        category: "javascript",
+      })),
       totalPoints: 100,
     };
 
